@@ -19,14 +19,32 @@ def _ensure_project_root_on_path() -> None:
 _ensure_project_root_on_path()
 
 from tool.model_loader import first_device_of, load_causal_lm, torch
+from tool.logging_utils import setup_logger
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="用本地模型评测 MMLU arrow 测试集")
+    parser = argparse.ArgumentParser(
+        description="用本地模型评测 MMLU arrow 测试集",
+        epilog=(
+            "日志路径说明:\n"
+            "  1) 不传 --log-file: 自动生成到 test_model/logs/mmlu_eval_YYYYMMDD_HHMMSS.log\n"
+            "  2) 传相对路径: 相对当前执行目录，例如 --log-file logs/run1.log\n"
+            "  3) 传绝对路径: 直接写入指定位置，例如 --log-file /workspace/logs/mmlu_eval.log\n"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument("--file-path", required=True, help="mmlu-test.arrow 路径")
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--print-samples", type=int, default=2, help="打印前 N 条样例")
+    parser.add_argument(
+        "--log-file",
+        default="",
+        help=(
+            "日志文件路径。为空时自动生成: test_model/logs/mmlu_eval_YYYYMMDD_HHMMSS.log；"
+            "可传相对路径或绝对路径"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -84,11 +102,17 @@ idx_to_letter = {0: "A", 1: "B", 2: "C", 3: "D"}
 
 def main() -> None:
     args = parse_args()
+    logger = setup_logger(
+        "mmlu_eval",
+        args.log_file or None,
+        log_dir=Path("test_model") / "logs",
+        file_prefix="mmlu_eval",
+    )
 
     try:
         test_dataset = Dataset.from_file(args.file_path)
     except Exception as e:
-        print(f"加载数据集失败: {e}")
+        logger.error(f"加载数据集失败: {e}")
         raise SystemExit(1)
 
     tokenizer, model = load_causal_lm()
@@ -96,7 +120,7 @@ def main() -> None:
     correct_count = 0
     total_count = len(test_dataset)
 
-    print(f"成功加载测试集，共 {total_count} 道题目。开始测试...\n")
+    logger.info(f"成功加载测试集，共 {total_count} 道题目。开始测试...")
 
     for i, item in enumerate(test_dataset):
         question = item["question"]
@@ -118,16 +142,16 @@ def main() -> None:
             correct_count += 1
 
         if i < args.print_samples:
-            print(f"--- 题目 {i + 1} ---")
-            print(prompt)
-            print(f"模型预测: {predicted_letter}, 正确答案: {correct_answer}\n")
+            logger.info(f"--- 题目 {i + 1} ---")
+            logger.info(prompt)
+            logger.info(f"模型预测: {predicted_letter}, 正确答案: {correct_answer}")
 
     accuracy = (correct_count / total_count) * 100 if total_count else 0.0
-    print("-" * 30)
-    print("测试完成！")
-    print(f"总题数: {total_count}")
-    print(f"答对题数: {correct_count}")
-    print(f"准确率 (Accuracy): {accuracy:.2f}%")
+    logger.info("-" * 30)
+    logger.info("测试完成！")
+    logger.info(f"总题数: {total_count}")
+    logger.info(f"答对题数: {correct_count}")
+    logger.info(f"准确率 (Accuracy): {accuracy:.2f}%")
 
 
 if __name__ == "__main__":

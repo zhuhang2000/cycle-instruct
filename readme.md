@@ -94,6 +94,25 @@ python test_model/test.py `
 	--print-samples 2
 ```
 
+#### 日志路径格式说明（重点）
+
+- 不传 `--log-file`：
+	- 自动生成到 `test_model/logs/` 目录
+	- 文件名格式：`mmlu_eval_YYYYMMDD_HHMMSS.log`
+	- 示例：`test_model/logs/mmlu_eval_20260322_153045.log`
+- 传相对路径：
+	- 相对“当前执行目录”解析
+	- 示例：`--log-file logs/run1.log`
+- 传绝对路径：
+	- 直接写入指定位置（目录不存在会自动创建）
+	- 示例：`--log-file /workspace/logs/mmlu_eval.log`
+
+示例（指定日志文件）：
+
+```powershell
+python test_model/test.py --file-path data/mmlu-test.arrow --log-file test_model/logs/manual_run.log
+```
+
 脚本会输出：
 
 - 样例题目预测
