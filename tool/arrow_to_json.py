@@ -1,5 +1,4 @@
 import argparse
-import importlib
 import json
 from pathlib import Path
 
@@ -46,24 +45,13 @@ def main() -> None:
 
 
 def load_arrow_records(input_path: Path) -> list[dict]:
-    # 优先使用 datasets（兼容 HuggingFace 的 .arrow）
-    datasets_spec = importlib.util.find_spec("datasets")
-    if datasets_spec is not None:
-        datasets = importlib.import_module("datasets")
-        dataset = datasets.Dataset.from_file(str(input_path))
-        return [record for record in dataset]
+    try:
+        datasets = __import__("datasets")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("未安装 datasets，请先执行: pip install datasets") from exc
 
-    # 兜底使用 pyarrow
-    pyarrow_spec = importlib.util.find_spec("pyarrow")
-    if pyarrow_spec is not None:
-        pa_ipc = importlib.import_module("pyarrow.ipc")
-        with input_path.open("rb") as f:
-            table = pa_ipc.open_file(f).read_all()
-        return table.to_pylist()
-
-    raise RuntimeError(
-        "未检测到可用依赖，请先安装 datasets 或 pyarrow，例如: pip install datasets"
-    )
+    dataset = datasets.Dataset.from_file(str(input_path))
+    return [record for record in dataset]
 
 
 if __name__ == "__main__":
