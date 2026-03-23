@@ -1,9 +1,12 @@
-import os
-import argparse
+"""
+Q2A：给定问题，生成伪答案，导出 LlamaFactory 训练集。
+
+用法:
+    python generate_pseudo_a.py -i input.json -o output.json
+"""
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 
 def _ensure_project_root_on_path() -> None:
@@ -17,97 +20,42 @@ def _ensure_project_root_on_path() -> None:
 
 _ensure_project_root_on_path()
 
-from tool.model_loader import first_device_of, load_causal_lm, torch
-
-# ===== 0) 环境与设备 =====
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="使用 Q2A 模型生成伪答案并导出 LlamaFactory 训练集")
-    parser.add_argument(
-        "--input",
-        required=True,
-        help="输入 JSON 路径（每项至少包含 question 字段）",
-    )
-    parser.add_argument(
-        "--output",
-        required=True,
-        help="输出 JSON 路径（LlamaFactory alpaca 格式）",
-    )
-    parser.add_argument("--max-new-tokens", type=int, default=256, help="每条最大生成 token 数")
-    parser.add_argument("--temperature", type=float, default=0.0, help="生成温度；0 为贪心")
-    parser.add_argument("--top-p", type=float, default=0.9, help="采样 top-p，仅 temperature>0 时生效")
-    parser.add_argument("--save-every", type=int, default=100, help="每处理 N 条自动落盘")
-    return parser.parse_args()
+from tool.chat_infer import generate, read_field, InferConfig
 
 
-# ===== 1) 通用生成函数 =====
-def chat_generate(tokenizer, model, messages, *,
-                  max_new_tokens=256, temperature=0.0, top_p=0.9,
-                  enable_thinking=False):
-    """
-    messages: [{"role":"system/user/assistant", "content": "..."}]
-    返回: 纯文本（会去掉 <think>... 冗余）
-    """
-    prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=enable_thinking,
-    )
+# ===== 业务逻辑 =====
 
-    # 把输入放到模型“第一层所在的设备”
-    target_device = first_device_of(model)
-    inputs = tokenizer([prompt], return_tensors="pt").to(target_device)
-
-    gen_kwargs = dict(
-        max_new_tokens=max_new_tokens,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
-    )
-    if temperature and temperature > 0.0:
-        gen_kwargs.update(dict(do_sample=True, temperature=temperature, top_p=top_p))
-    else:
-        # 显式置空，避免 transformers 对无效采样参数给出告警
-        gen_kwargs.update(dict(do_sample=False, temperature=None, top_p=None))
-
-    with torch.inference_mode():
-        out_ids = model.generate(**inputs, **gen_kwargs)[0]
-
-    gen_ids = out_ids[len(inputs.input_ids[0]):]
-    text = tokenizer.decode(gen_ids, skip_special_tokens=True)
-
-    # 可选：去掉 <think>... 的内容（Qwen Thinking 模式可能产生）
-    if "</think>" in text:
-        text = text.split("</think>", 1)[-1].strip()
-
-    return text.strip()
-
-def build_messages_q2a(question: str):
-    instruction = (
-        "Given the following question, write a clear, accurate, and informative answer."
-        " The answer should be natural, coherent, and self-contained."
-        "\n\n[Question]\n" + question
-    )
+def build_messages(question: str):
     return [
         {
             "role": "system",
-            "content": "You are an expert answer generator. "
-                       "Read the given question carefully and generate ONE concise and informative answer.\n"
-                       "Requirements: "
-                       "- Provide factual, logically sound information "
-                       "- Avoid vague or meaningless statements "
-                       "- Be concise (1–3 sentences) but complete in meaning",
+            "content": (
+                "You are an expert answer generator. "
+                "Read the given question carefully and generate ONE concise and informative answer.\n"
+                "Requirements: "
+                "- Provide factual, logically sound information "
+                "- Avoid vague or meaningless statements "
+                "- Be concise (1–3 sentences) but complete in meaning"
+            ),
         },
-        {"role": "user", "content": instruction},
+        {
+            "role": "user",
+            "content": (
+                "Given the following question, write a clear, accurate, and informative answer."
+                " The answer should be natural, coherent, and self-contained."
+                "\n\n[Question]\n" + question
+            ),
+        },
     ]
 
 
-def to_lf_record(question: str, answer: str) -> dict:
+def to_record(question: str, answer: str) -> dict:
     return {
         "instruction": (
-            "Given the following [Answer], write a natural, unambiguous question such that the only reasonable reply to the question is exactly that [Answer].\n"
-            "Requirements: include key entities and either a cause/explanation or a comparison; avoid yes/no questions."
+            "Given the following [Answer], write a natural, unambiguous question such that "
+            "the only reasonable reply to the question is exactly that [Answer].\n"
+            "Requirements: include key entities and either a cause/explanation or a comparison; "
+            "avoid yes/no questions."
         ),
         "input": answer,
         "output": question,
@@ -116,13 +64,19 @@ def to_lf_record(question: str, answer: str) -> dict:
     }
 
 
-def save_json(path: Path, data: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
 if __name__ == "__main__":
-    args = parse_args()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Q2A：生成伪答案")
+    parser.add_argument("-i", "--input", required=True, help="输入 JSON 路径")
+    parser.add_argument("-o", "--output", required=True, help="输出 JSON 路径")
+    
+    # 允许命令行指定关键的推理配置
+    parser.add_argument("-bk","--backend", type=str, default="vllm", choices=["vllm", "hf"], help="推理后端")
+    parser.add_argument("-q","--quantization", type=str, default=None, help="量化方式 (hf: 4bit/8bit, vllm: fp8/awq 等)")
+    parser.add_argument("-m","--model-path", type=str, default="/workspace/models/LLM-Research/Meta-Llama-3-8B-Instruct", help="模型路径")
+    
+    args = parser.parse_args()
 
     input_path = Path(args.input)
     output_path = Path(args.output)
@@ -130,31 +84,13 @@ if __name__ == "__main__":
     with input_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
-    tok, mdl = load_causal_lm()
+    questions = [q for q in (read_field(s, "input", "question") for s in data) if q]
+    
+    # 组装 InferConfig 并传入
+    cfg = InferConfig(
+        backend=args.backend,
+        quantization=args.quantization,
+        model_path=args.model_path,
+    )
 
-    converted: list[dict] = []
-    total = len(data)
-    for idx, s in enumerate(data, start=1):
-        q = str(s.get("input", "")).strip()
-        if not q:
-            continue
-
-        a_gen = chat_generate(
-            tok,
-            mdl,
-            build_messages_q2a(q),
-            max_new_tokens=args.max_new_tokens,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            enable_thinking=False,
-        )
-        converted.append(to_lf_record(q, a_gen))
-
-        if idx % max(args.save_every, 1) == 0:
-            save_json(output_path, converted)
-            print(f"[Progress] {idx}/{total}，当前已保存 {len(converted)} 条 -> {output_path}")
-
-    save_json(output_path, converted)
-    print(f"[Done] 生成完成，共 {len(converted)} 条 -> {output_path}")
-
-
+    generate(questions, build_messages, output_path, to_record, cfg=cfg)

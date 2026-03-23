@@ -1,27 +1,27 @@
 import importlib
 from typing import Any
 
-
 torch = importlib.import_module("torch")
 transformers = importlib.import_module("transformers")
 AutoTokenizer = transformers.AutoTokenizer
 AutoModelForCausalLM = transformers.AutoModelForCausalLM
 BitsAndBytesConfig = transformers.BitsAndBytesConfig
 
-
-# 统一模型加载参数（调用方无需重复传参）
-MODEL_PATH = "/workspace/models/LLM-Research/Meta-Llama-3-8B-Instruct"
-QUANTIZATION = "4bit"
-DOUBLE_QUANT = False
-QUANT_TYPE = "nf4"
-DTYPE_GPU = "float16"
-DTYPE_CPU = "float32"
+HAS_CUDA = torch.cuda.is_available()
 DEVICE_GPU = "cuda:0"
 
 
+def _normalize_quantization(quantization: str | None) -> str | None:
+    if quantization is None:
+        return None
+    q = str(quantization).strip().lower()
+    if q in {"", "none", "off", "false", "no", "0"}:
+        return None
+    return q
+
+
 def setup_torch_perf() -> None:
-    """针对 A10 等 GPU 的通用性能开关。"""
-    if torch.cuda.is_available():
+    if HAS_CUDA:
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         try:
@@ -31,7 +31,6 @@ def setup_torch_perf() -> None:
 
 
 def first_device_of(model: Any) -> str:
-    """在 device_map=auto 时，找到输入张量应放置的设备。"""
     if hasattr(model, "hf_device_map") and isinstance(model.hf_device_map, dict):
         for _, dev in model.hf_device_map.items():
             if isinstance(dev, int):
@@ -45,36 +44,75 @@ def first_device_of(model: Any) -> str:
         return "cpu"
 
 
-def load_causal_lm():
-    """通用 CausalLM 加载（支持 none/8bit/4bit）。"""
+def load_causal_lm(*, model_path: str,
+                   quantization: str | None = "4bit",
+                   double_quant: bool = False,
+                   quant_type: str = "nf4",
+                   dtype_gpu: str = "float16",
+                   dtype_cpu: str = "float32"):
+    """通用 HF CausalLM 加载（支持 none/8bit/4bit）。"""
     setup_torch_perf()
+    q = _normalize_quantization(quantization)
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
 
-    use_cuda = torch.cuda.is_available()
     model_kwargs = {
         "trust_remote_code": True,
         "attn_implementation": "sdpa",
         "low_cpu_mem_usage": True,
     }
 
-    if use_cuda and QUANTIZATION in {"8bit", "4bit"}:
-        if QUANTIZATION == "8bit":
+    if HAS_CUDA and q in {"8bit", "4bit"}:
+        if q == "8bit":
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
         else:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,
-                bnb_4bit_compute_dtype=getattr(torch, DTYPE_GPU),
-                bnb_4bit_use_double_quant=DOUBLE_QUANT,
-                bnb_4bit_quant_type=QUANT_TYPE,
+                bnb_4bit_compute_dtype=getattr(torch, dtype_gpu),
+                bnb_4bit_use_double_quant=double_quant,
+                bnb_4bit_quant_type=quant_type,
             )
         model_kwargs["device_map"] = "auto"
     else:
-        model_kwargs["device_map"] = DEVICE_GPU if use_cuda else "cpu"
-        model_kwargs["torch_dtype"] = getattr(torch, DTYPE_GPU) if use_cuda else getattr(torch, DTYPE_CPU)
+        model_kwargs["device_map"] = DEVICE_GPU if HAS_CUDA else "cpu"
+        model_kwargs["torch_dtype"] = getattr(torch, dtype_gpu) if HAS_CUDA else getattr(torch, dtype_cpu)
 
-    model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, **model_kwargs).eval()
+    model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs).eval()
     return tokenizer, model
+
+
+def load_vllm_engine(*, model_path: str, **kwargs):
+    """加载 vLLM 引擎并返回 (tokenizer, llm)。"""
+    try:
+        LLM = importlib.import_module("vllm").LLM
+    except ImportError as exc:
+        raise RuntimeError("未安装 vllm，请先执行: pip install vllm") from exc
+
+    if kwargs.get("disable_log"):
+        import os
+        os.environ.setdefault("VLLM_CONFIGURE_LOGGING", "0")
+
+    q = _normalize_quantization(kwargs.get("quantization"))
+    llm_kwargs: dict[str, Any] = {
+        "model": model_path,
+        "tokenizer": model_path,
+        "trust_remote_code": True,
+        "tensor_parallel_size": max(1, kwargs.get("tensor_parallel_size", 1)),
+        "gpu_memory_utilization": kwargs.get("gpu_memory_utilization", 0.9),
+        "dtype": kwargs.get("dtype", "auto"),
+    }
+    max_model_len = kwargs.get("max_model_len", 0)
+    if max_model_len and max_model_len > 0:
+        llm_kwargs["max_model_len"] = max_model_len
+    if q:
+        llm_kwargs["quantization"] = q
+
+    llm = LLM(**llm_kwargs)
+    tokenizer = llm.get_tokenizer()
+    return tokenizer, llm
+
+
+

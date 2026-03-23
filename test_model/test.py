@@ -19,6 +19,7 @@ def _ensure_project_root_on_path() -> None:
 _ensure_project_root_on_path()
 
 from tool.model_loader import first_device_of, load_causal_lm, torch
+from tool.chat_infer import InferConfig
 from tool.logging_utils import setup_logger
 
 def parse_args() -> argparse.Namespace:
@@ -115,7 +116,7 @@ def main() -> None:
         logger.error(f"加载数据集失败: {e}")
         raise SystemExit(1)
 
-    tokenizer, model = load_causal_lm()
+    tokenizer, model = load_causal_lm(model_path=InferConfig.model_path)
 
     correct_count = 0
     total_count = len(test_dataset)
