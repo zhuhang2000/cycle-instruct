@@ -1,3 +1,7 @@
 data/*.arrow
 origin_qa/
-LlamaFactory/*
+# 忽略所有层级下的 LlamaFactory 文件夹
+**/LlamaFactory/
+# 忽略所有层级下的 __pycache__ 文件夹及其内容
+**/__pycache__/
+*.pyc
