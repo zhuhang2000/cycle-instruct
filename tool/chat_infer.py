@@ -156,6 +156,15 @@ def generate(
     save_step = max(cfg.save_every, 1)
 
     if cfg.backend == "vllm":
+        try:
+            import multiprocessing as mp
+
+            if mp.get_start_method(allow_none=True) != "spawn":
+                mp.set_start_method("spawn", force=True)
+        except Exception:
+            # 若上下文已初始化，不阻断后续；vLLM 环境变量仍会兜底。
+            pass
+
         tok, llm = load_vllm_engine(
             model_path=cfg.model_path,
             tensor_parallel_size=cfg.tensor_parallel_size,

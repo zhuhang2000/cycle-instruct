@@ -7,8 +7,15 @@ AutoTokenizer = transformers.AutoTokenizer
 AutoModelForCausalLM = transformers.AutoModelForCausalLM
 BitsAndBytesConfig = transformers.BitsAndBytesConfig
 
-HAS_CUDA = torch.cuda.is_available()
 DEVICE_GPU = "cuda:0"
+_HAS_CUDA: bool | None = None
+
+
+def _has_cuda() -> bool:
+    global _HAS_CUDA
+    if _HAS_CUDA is None:
+        _HAS_CUDA = torch.cuda.is_available()
+    return _HAS_CUDA
 
 
 def _normalize_quantization(quantization: str | None) -> str | None:
@@ -21,7 +28,7 @@ def _normalize_quantization(quantization: str | None) -> str | None:
 
 
 def setup_torch_perf() -> None:
-    if HAS_CUDA:
+    if _has_cuda():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         try:
@@ -65,7 +72,8 @@ def load_causal_lm(*, model_path: str,
         "low_cpu_mem_usage": True,
     }
 
-    if HAS_CUDA and q in {"8bit", "4bit"}:
+    has_cuda = _has_cuda()
+    if has_cuda and q in {"8bit", "4bit"}:
         if q == "8bit":
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
         else:
@@ -77,8 +85,8 @@ def load_causal_lm(*, model_path: str,
             )
         model_kwargs["device_map"] = "auto"
     else:
-        model_kwargs["device_map"] = DEVICE_GPU if HAS_CUDA else "cpu"
-        model_kwargs["torch_dtype"] = getattr(torch, dtype_gpu) if HAS_CUDA else getattr(torch, dtype_cpu)
+        model_kwargs["device_map"] = DEVICE_GPU if has_cuda else "cpu"
+        model_kwargs["torch_dtype"] = getattr(torch, dtype_gpu) if has_cuda else getattr(torch, dtype_cpu)
 
     model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs).eval()
     return tokenizer, model
@@ -86,13 +94,17 @@ def load_causal_lm(*, model_path: str,
 
 def load_vllm_engine(*, model_path: str, **kwargs):
     """加载 vLLM 引擎并返回 (tokenizer, llm)。"""
+    import os
+
+    # 避免 Linux 下默认 fork 方式导致 CUDA 在子进程中二次初始化报错。
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+
     try:
         LLM = importlib.import_module("vllm").LLM
     except ImportError as exc:
         raise RuntimeError("未安装 vllm，请先执行: pip install vllm") from exc
 
     if kwargs.get("disable_log"):
-        import os
         os.environ.setdefault("VLLM_CONFIGURE_LOGGING", "0")
 
     q = _normalize_quantization(kwargs.get("quantization"))
