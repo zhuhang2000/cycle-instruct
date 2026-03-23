@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 INPUT="/workspace/cycle-instruct/origin_qa/test.json"
-OUTPUT="/workspace/cycle-instruct/LlamaFactory/data/A2Q_pseudo_question_vllm.json"
+OUTPUT="/workspace/cycle-instruct/LlamaFactory/data/Q2A_pseudo_answer_vllm.json"
 BACKEND="vllm"         # vllm | hf
 QUANTIZATION="fp8"     # vllm: fp8/awq/gptq/none, hf: 4bit/8bit/none
 MODEL_PATH="/workspace/models/LLM-Research/Meta-Llama-3-8B-Instruct"
@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
     --model-path)
       MODEL_PATH="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: bash run_generate_pseudo_a.sh [--input PATH] [--output PATH] [--backend vllm|hf] [--quantization Q] [--model-path PATH]"
+      echo "Usage: bash run_generate_pseudo_q.sh [--input PATH] [--output PATH] [--backend vllm|hf] [--quantization Q] [--model-path PATH]"
       exit 0 ;;
     *)
       echo "[ERROR] Unknown argument: $1" >&2
@@ -39,7 +39,7 @@ LOGDIR="$(dirname "$OUTPUT")/logs"
 mkdir -p "$LOGDIR"
 LOGFILE="$LOGDIR/generate_$(date +%Y%m%d_%H%M%S).log"
 
-CMD=("$PYTHON_BIN" /workspace/cycle-instruct/code/A2Q/generate_pseudo_a.py \
+CMD=("$PYTHON_BIN" /workspace/cycle-instruct/code/Q2A/generate_pseudo_q.py \
   -i "$INPUT" \
   -o "$OUTPUT" \
   -bk "$BACKEND" \

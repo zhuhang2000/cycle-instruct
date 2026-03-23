@@ -6,3 +6,5 @@ origin_qa/
 **/__pycache__/
 *.pyc
 **/*.pyc
+*.md
+!README.md
