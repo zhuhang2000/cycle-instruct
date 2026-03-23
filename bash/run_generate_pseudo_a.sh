@@ -7,6 +7,8 @@ cd "$REPO_ROOT"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
+# bash run_generate_pseudo_a.sh -i /workspace/cycle-instruct/origin_qa/test.json -o /workspace/cycle-instruct/LlamaFactory/data/A2Q_pseudo_question_vllm.json -bk vllm -q fp8 -m /workspace/models/LLM-Research/Meta-Llama-3-8B-Instruct
+
 INPUT="/workspace/cycle-instruct/origin_qa/test.json"
 OUTPUT="/workspace/cycle-instruct/LlamaFactory/data/A2Q_pseudo_question_vllm.json"
 BACKEND="vllm"         # vllm | hf
@@ -15,18 +17,18 @@ MODEL_PATH="/workspace/models/LLM-Research/Meta-Llama-3-8B-Instruct"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --input)
+    --input | -i)
       INPUT="$2"; shift 2 ;;
-    --output)
+    --output | -o)
       OUTPUT="$2"; shift 2 ;;
-    --backend)
+    --backend | -bk)
       BACKEND="$2"; shift 2 ;;
-    --quantization)
+    --quantization | -q)
       QUANTIZATION="$2"; shift 2 ;;
-    --model-path)
+    --model-path | -m)
       MODEL_PATH="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: bash run_generate_pseudo_a.sh [--input PATH] [--output PATH] [--backend vllm|hf] [--quantization Q] [--model-path PATH]"
+      echo "Usage: bash run_generate_pseudo_a.sh [--input | -i PATH] [--output | -o PATH] [--backend | -bk vllm|hf] [--quantization | -q Q] [--model-path | -m PATH]"
       exit 0 ;;
     *)
       echo "[ERROR] Unknown argument: $1" >&2
