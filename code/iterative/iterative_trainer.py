@@ -61,6 +61,10 @@ from code.iterative.round_config import (
 
 logger = logging.getLogger(__name__)
 
+_IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff",
+}
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -146,6 +150,9 @@ def run_generation_and_filter(
     GPU memory on ``del``). Set ``CI_SKIP_HEAVY=1`` in tests.
     """
     round_dir.mkdir(parents=True, exist_ok=True)
+    stage1_input = round_dir / "stage1_samples.json"
+    raw_vqa_file = round_dir / "raw_vqa.json"
+    scored_vqa_file = round_dir / "scored_vqa.json"
     filtered_file = round_dir / "filtered_vqa.json"
 
     if os.environ.get("CI_SKIP_HEAVY"):
@@ -153,31 +160,84 @@ def run_generation_and_filter(
         filtered_file.write_text("[]", encoding="utf-8")
         return []
 
+    _write_stage1_input(raw_image_dir, stage1_input, samples_to_generate)
+
     cmd = [
-        sys.executable, "-m", "code.I2QA.generate_vqa_pairs",
-        "--model_path", generator_model_path,
-        "--image_dir", raw_image_dir,
-        "--output", str(round_dir / "raw_vqa.json"),
-        "--num_samples", str(samples_to_generate),
+        sys.executable, str(_repo_script("code", "I2QA", "generate_vqa_pairs.py")),
+        "--input", str(stage1_input),
+        "--output", str(raw_vqa_file),
+        "--model-path", generator_model_path,
+        "--num-qa", "1",
     ]
     logger.info("[controller] generation: %s", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
     # Verify + filter (re-using existing scripts)
     subprocess.run([
-        sys.executable, "-m", "code.I2QA.verify_cycle_consistency",
-        "--input", str(round_dir / "raw_vqa.json"),
-        "--output", str(round_dir / "scored_vqa.json"),
+        sys.executable, str(_repo_script("code", "I2QA", "verify_cycle_consistency.py")),
+        "--input", str(raw_vqa_file),
+        "--output", str(scored_vqa_file),
+        "--model-path", generator_model_path,
+        "--verifier-model-path", generator_model_path,
+        "--text-model-path", generator_model_path,
     ], check=True)
 
     subprocess.run([
-        sys.executable, "-m", "code.I2QA.filter_and_export",
-        "--input", str(round_dir / "scored_vqa.json"),
+        sys.executable, str(_repo_script("code", "I2QA", "filter_and_export.py")),
+        "--input", str(scored_vqa_file),
         "--output", str(filtered_file),
     ], check=True)
 
     with filtered_file.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _repo_script(*parts: str) -> Path:
+    return _repo_root().joinpath(*parts)
+
+
+def _list_raw_images(raw_image_dir: str) -> list[Path]:
+    raw_dir = Path(raw_image_dir)
+    if not raw_dir.is_dir():
+        raise FileNotFoundError(f"raw_image_dir does not exist: {raw_image_dir}")
+
+    image_paths = sorted(
+        path.resolve()
+        for path in raw_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in _IMAGE_EXTENSIONS
+    )
+    if not image_paths:
+        raise FileNotFoundError(f"no images found under raw_image_dir: {raw_image_dir}")
+    return image_paths
+
+
+def _write_stage1_input(
+    raw_image_dir: str,
+    output_path: Path,
+    samples_to_generate: int,
+) -> Path:
+    """Materialize ImageTextSample JSON expected by Stage 1."""
+    if samples_to_generate <= 0:
+        raise ValueError("samples_to_generate must be positive")
+
+    image_paths = _list_raw_images(raw_image_dir)
+    records = [
+        {
+            "image_path": str(image_paths[idx % len(image_paths)]),
+            "source_type": "iterative_raw_image",
+            "metadata": {"raw_image_index": idx % len(image_paths)},
+        }
+        for idx in range(samples_to_generate)
+    ]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+    return output_path
 
 
 def run_lora_training(
