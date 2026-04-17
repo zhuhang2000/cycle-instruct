@@ -262,14 +262,30 @@ def rebalance_qa_types(
             continue
         by_type[classify_qa_type(q)].append(s)
 
-    total = len(samples)
-    target_max = int(total * max_fraction)
-
     kept: list[dict[str, Any]] = list(unknown)
+    target_sizes = {t: len(bucket) for t, bucket in by_type.items()}
+
+    # Recompute caps against the eventual kept set, not the original total.
+    # Otherwise a dominant type can still exceed ``max_fraction`` after a
+    # single-pass trim because the denominator shrinks alongside the bucket.
+    changed = True
+    while changed:
+        changed = False
+        for t, size in target_sizes.items():
+            others = len(unknown) + sum(v for k, v in target_sizes.items() if k != t)
+            if others == 0:
+                continue
+            allowed = int((max_fraction * others) / max(1.0 - max_fraction, 1e-9))
+            allowed = max(1, allowed)
+            if size > allowed:
+                target_sizes[t] = allowed
+                changed = True
+
     for t, bucket in by_type.items():
-        if len(bucket) > target_max:
+        limit = target_sizes[t]
+        if len(bucket) > limit:
             rng.shuffle(bucket)
-            bucket = bucket[:target_max]
+            bucket = bucket[:limit]
         kept.extend(bucket)
 
     # Log under-represented warnings
