@@ -100,6 +100,15 @@ def test_should_stop_diversity_collapse() -> None:
     assert "diversity-collapse" in reason
 
 
+def test_should_stop_diversity_zero() -> None:
+    history = [
+        _make(0, data_diversity_score=0.0),
+    ]
+    stop, reason = should_stop(history, diversity_threshold=0.6)
+    assert stop is True
+    assert "diversity-collapse" in reason
+
+
 def test_should_stop_drift_converged() -> None:
     history = [
         _make(0, drift_from_prev=None),

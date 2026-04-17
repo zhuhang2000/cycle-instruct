@@ -48,7 +48,7 @@ class RoundMetrics:
 
     # ---- evaluation / convergence signals --------------------------------
     eval_accuracy: float | None = None
-    data_diversity_score: float = 0.0
+    data_diversity_score: float | None = None
     drift_from_prev: float | None = None
 
     # ---- freeform extras --------------------------------------------------
@@ -143,7 +143,10 @@ def should_stop(
         return True, f"max-rounds-reached({max_rounds})"
 
     # Rule 3: diversity collapse — single-round signal
-    if latest.data_diversity_score and latest.data_diversity_score < diversity_threshold:
+    if (
+        latest.data_diversity_score is not None
+        and latest.data_diversity_score < diversity_threshold
+    ):
         return True, (
             f"diversity-collapse({latest.data_diversity_score:.3f} < "
             f"{diversity_threshold})"
