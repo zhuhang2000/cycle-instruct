@@ -246,7 +246,13 @@ def update_historical_pool(
     # 3. Merge + dedup (existing items win on ties — preserves earlier round_added)
     merged_dict: dict[str, dict[str, Any]] = {}
     for s in existing + candidates:
-        merged_dict.setdefault(_sample_key(s), s)
+        key = _sample_key(s)
+        incumbent = merged_dict.get(key)
+        if incumbent is None:
+            merged_dict[key] = s
+            continue
+        if float(s.get(score_key, 0.0)) > float(incumbent.get(score_key, 0.0)):
+            merged_dict[key] = s
     merged = list(merged_dict.values())
 
     # 4. Cap by descending score

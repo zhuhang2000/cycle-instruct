@@ -245,6 +245,26 @@ def test_historical_pool_repeated_writes_stable(tmp_path: Path) -> None:
     assert len(lines) == 50  # capped
 
 
+def test_historical_pool_upgrades_duplicate_to_higher_score(tmp_path: Path) -> None:
+    pool = tmp_path / "pool.jsonl"
+    original = _mk(1, cycle_score=0.86)
+    upgraded = _mk(1, cycle_score=0.97)
+
+    update_historical_pool(
+        [original], historical_pool_path=pool, pool_size=5000,
+        quality_threshold=0.85, round_id=0,
+    )
+    update_historical_pool(
+        [upgraded], historical_pool_path=pool, pool_size=5000,
+        quality_threshold=0.85, round_id=1,
+    )
+
+    kept = [json.loads(line) for line in pool.read_text("utf-8").splitlines()]
+    assert len(kept) == 1
+    assert kept[0]["cycle_score"] == pytest.approx(0.97)
+    assert kept[0]["round_added"] == 1
+
+
 # ---------------------------------------------------------------------------
 # LlamaFactory dataset glue
 # ---------------------------------------------------------------------------
