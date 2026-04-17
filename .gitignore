@@ -9,3 +9,4 @@ origin_qa/
 *.md
 !README.md
 .claude
+.worktrees/
