@@ -196,10 +196,11 @@ def main(argv: list[str] | None = None) -> int:
         infer_fn: MLLMInferFn = _stub_infer_fn()
     else:
         train_fn = default_train_fn(experiment.backbone, experiment.training_preset)
-        infer_fn = default_infer_fn()
+        infer_fn = default_infer_fn(out_root / "_infer_artifacts")
 
     only = set(s.strip() for s in args.only.split(",") if s.strip())
     runs: list[MethodRun] = []
+    failed_methods: list[dict[str, str]] = []
     for m in experiment.methods:
         if only and m.name not in only:
             continue
@@ -207,12 +208,14 @@ def main(argv: list[str] | None = None) -> int:
             runs.append(run_method(m, experiment, train_fn, infer_fn, out_root))
         except Exception as exc:  # noqa: BLE001
             logger.exception("method %s failed: %s", m.name, exc)
+            failed_methods.append({"method": m.name, "error": str(exc)})
 
     save_json(out_root / "experiment.json", {
         "experiment": experiment.name,
         "num_methods": len(runs),
+        "failed_methods": failed_methods,
     })
-    return 0
+    return 1 if failed_methods else 0
 
 
 if __name__ == "__main__":

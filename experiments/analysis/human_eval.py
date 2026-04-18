@@ -17,6 +17,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _normalise_label(value: str) -> str | None:
+    v = value.strip().lower()
+    return v if v in ("a", "b", "tie") else None
+
+
 def generate_template(
     samples_a: list[dict[str, Any]],
     samples_b: list[dict[str, Any]],
@@ -63,8 +68,8 @@ def analyse(csv_path: Path) -> dict[str, Any]:
     judgments: dict[str, list[str]] = {c: [] for c in rater_cols}
     for r in rows:
         for c in rater_cols:
-            v = (r.get(c) or "").strip().lower()
-            if v in ("a", "b", "tie"):
+            v = _normalise_label(r.get(c) or "")
+            if v is not None:
                 judgments[c].append(v)
 
     summary: dict[str, Any] = {
@@ -81,7 +86,12 @@ def analyse(csv_path: Path) -> dict[str, Any]:
         }
     if len(rater_cols) >= 2:
         c1, c2 = rater_cols[0], rater_cols[1]
-        common = [(x, y) for x, y in zip(judgments[c1], judgments[c2]) if x and y]
+        common = []
+        for row in rows:
+            x = _normalise_label(row.get(c1) or "")
+            y = _normalise_label(row.get(c2) or "")
+            if x is not None and y is not None:
+                common.append((x, y))
         if common:
             a_list, b_list = zip(*common)
             summary["kappas"][f"{c1}_vs_{c2}"] = cohens_kappa(list(a_list), list(b_list))

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from experiments.baselines.runner import _stub_train_fn, run_method
+from experiments.baselines.runner import _stub_train_fn, main, run_method
 from experiments.eval.runner import _stub_infer_fn
-from experiments.types import BaselineSpec, BenchmarkSpec, ExperimentSpec
+from experiments.types import BaselineSpec, BenchmarkSpec, ExperimentSpec, MethodRun
 
 
 def _write_pool(path: Path, n: int = 10) -> None:
@@ -87,3 +87,42 @@ def test_single_method_smoke(tmp_path: Path, baseline_name: str, kind: str, para
     assert len(run.results) == 1
     assert run.results[0].benchmark == "pope"
     assert (out_root / baseline_name / "run.json").exists()
+
+
+def test_main_returns_nonzero_and_records_failures_when_any_method_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ok = BaselineSpec(name="ok_method", kind="no_filter")
+    boom = BaselineSpec(name="boom_method", kind="no_filter")
+    experiment = ExperimentSpec(
+        name="exp",
+        backbone="stub",
+        methods=[ok, boom],
+        benchmarks=[],
+    )
+
+    monkeypatch.setattr("experiments.baselines.runner.load_experiment_spec", lambda *args, **kwargs: experiment)
+    monkeypatch.setattr("experiments.baselines.runner.default_train_fn", lambda *args, **kwargs: _stub_train_fn())
+    monkeypatch.setattr("experiments.baselines.runner.default_infer_fn", lambda *args, **kwargs: _stub_infer_fn())
+
+    def _fake_run_method(
+        spec: BaselineSpec,
+        experiment: ExperimentSpec,
+        train_fn,
+        infer_fn,
+        output_root: Path,
+    ) -> MethodRun:
+        if spec.name == "boom_method":
+            raise RuntimeError("boom")
+        return MethodRun(method=spec.name, baseline=spec)
+
+    monkeypatch.setattr("experiments.baselines.runner.run_method", _fake_run_method)
+
+    exit_code = main(["--spec", str(tmp_path / "spec.yaml"), "--output-root", str(tmp_path / "runs")])
+
+    assert exit_code == 1
+    summary = json.loads((tmp_path / "runs" / "experiment.json").read_text("utf-8"))
+    assert summary["experiment"] == "exp"
+    assert summary["num_methods"] == 1
+    assert summary["failed_methods"] == [{"method": "boom_method", "error": "boom"}]

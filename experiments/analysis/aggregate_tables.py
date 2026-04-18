@@ -39,7 +39,10 @@ def build_grid(runs: list[dict]) -> tuple[list[str], list[str], dict[tuple[str, 
             b = r.get("benchmark", "")
             if b and b not in benchmarks:
                 benchmarks.append(b)
-            cells[(m, b)] = {
+            key = (m, b)
+            if key in cells:
+                raise ValueError(f"duplicate result cell for method={m!r}, benchmark={b!r}")
+            cells[key] = {
                 "score": r.get("score"),
                 "metric": r.get("metric"),
                 "num_samples": r.get("num_samples"),

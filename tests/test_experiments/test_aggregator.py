@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from experiments.analysis.aggregate_tables import aggregate, build_grid, to_markdown
 from experiments.analysis.ablation_table import aggregate_ablation
 
@@ -60,3 +62,14 @@ def test_ablation_delta_format(tmp_path: Path) -> None:
     md = Path(paths["md"]).read_text()
     assert "0.700" in md
     assert "-0.100" in md  # delta
+
+
+def test_build_grid_raises_on_duplicate_method_benchmark_cells(tmp_path: Path) -> None:
+    exp = tmp_path / "dup"
+    _write_run(exp / "first", "same_method", [{"benchmark": "pope", "score": 0.80}])
+    _write_run(exp / "second", "same_method", [{"benchmark": "pope", "score": 0.70}])
+
+    from experiments.analysis.aggregate_tables import collect_runs
+
+    with pytest.raises(ValueError, match="duplicate result cell"):
+        build_grid(collect_runs(exp))

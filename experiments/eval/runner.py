@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
@@ -45,7 +46,7 @@ def _stub_infer_fn(stub_text: str = "yes") -> MLLMInferFn:
     return _fn
 
 
-def default_infer_fn() -> MLLMInferFn:
+def default_infer_fn(output_root: Path | None = None) -> MLLMInferFn:
     """Real inference via ``tool.multimodal_infer.generate_multimodal``.
 
     Imported lazily so that unit tests (which don't have torch/vllm) can still
@@ -55,8 +56,14 @@ def default_infer_fn() -> MLLMInferFn:
     from tool.multimodal_types import ImageTextSample, MultimodalInferConfig
 
     cfg_cache: dict[str, Any] = {}
+    artifact_root = Path(output_root) if output_root is not None else Path(
+        tempfile.mkdtemp(prefix="experiments-infer-"),
+    )
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    call_index = 0
 
     def _fn(messages: list[dict], images: list[str], model_path: str) -> str:
+        nonlocal call_index
         cfg = cfg_cache.get(model_path)
         if cfg is None:
             cfg = MultimodalInferConfig(mllm_model_path=model_path)
@@ -78,7 +85,9 @@ def default_infer_fn() -> MLLMInferFn:
         # One-shot call: generate_multimodal is batch-oriented, but for the
         # evaluator we want a single string. Callers that want throughput
         # should override this hook with a batched version.
-        out = generate_multimodal([sample], _build, Path("/dev/null"), _rec, cfg)
+        output_path = artifact_root / f"infer_{call_index:06d}.json"
+        call_index += 1
+        out = generate_multimodal([sample], _build, output_path, _rec, cfg)
         return out[0].get("raw", "") if out else ""
 
     return _fn
@@ -189,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.smoke or os.environ.get("CI_SKIP_HEAVY") == "1":
         infer_fn: MLLMInferFn = _stub_infer_fn()
     else:
-        infer_fn = default_infer_fn()
+        infer_fn = default_infer_fn(Path(args.output_dir) / "_infer_artifacts")
 
     results = run_benchmarks(
         benchmarks=benches,
