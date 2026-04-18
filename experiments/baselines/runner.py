@@ -71,10 +71,10 @@ def default_train_fn(backbone: str, preset: str = "default") -> TrainFn:
             raise FileNotFoundError(f"training script not found: {script}")
         cmd = [
             "bash", str(script),
-            "--dataset", str(dataset),
-            "--backbone", backbone,
-            "--preset", preset,
-            "--output", str(out_dir),
+            "--input", str(dataset),
+            "--output-dir", str(out_dir),
+            "--mllm-model", backbone,
+            "--data-type", "json",
         ]
         log_path = out_dir / "train.log"
         with log_path.open("w") as log:

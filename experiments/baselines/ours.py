@@ -5,7 +5,7 @@ Two convenient modes driven by ``spec.params``:
 * ``params.round=N`` — load the filtered-and-mixed training JSON produced
   by round *N* of the iterative trainer. If the path is provided via
   ``params.round_data`` we use it directly; otherwise we look for
-  ``<initial_data_path parent>/round_{N}/mixed_round_{N}.json``.
+  ``<raw_pool_path>/round_{N}/mixed_round_{N}.json``.
 * ``params.filtered_pool`` — treat the file as the raw filtered VQA set
   (single-shot cycle-consistency, no mixing).
 
@@ -31,7 +31,7 @@ class OursPreparer(BaseDataPreparer):
         elif params.get("filtered_pool"):
             src = Path(params["filtered_pool"])
         elif "round" in params and self.spec.raw_pool_path:
-            base = Path(self.spec.raw_pool_path).parent
+            base = Path(self.spec.raw_pool_path)
             src = base / f"round_{params['round']}" / f"mixed_round_{params['round']}.json"
         else:
             raise ValueError(
