@@ -1,0 +1,16 @@
+name: thresholds_sweep_v1
+backbone: Qwen-VL-2B
+target_size: 50000
+output_root: runs/experiments
+
+# Grid over cycle_threshold θ. Each theta has its own pre-filtered pool.
+methods:
+  - {name: theta_0p50, kind: ours, params: {round_data: runs/theta/0p50/train.json}}
+  - {name: theta_0p60, kind: ours, params: {round_data: runs/theta/0p60/train.json}}
+  - {name: theta_0p70, kind: ours, params: {round_data: runs/theta/0p70/train.json}}
+  - {name: theta_0p80, kind: ours, params: {round_data: runs/theta/0p80/train.json}}
+  - {name: theta_0p90, kind: ours, params: {round_data: runs/theta/0p90/train.json}}
+
+benchmarks:
+  - {name: mmbench, split: dev, data_path: data/bench/mmbench/dev.tsv, image_dir: data/bench/mmbench/images, metric: mc_acc}
+  - {name: pope,    split: adv, data_path: data/bench/pope/pope_adversarial.jsonl, image_dir: data/bench/coco/val2014, metric: accuracy}
