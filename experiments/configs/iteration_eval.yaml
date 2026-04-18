@@ -1,0 +1,16 @@
+name: iteration_eval_v1
+backbone: Qwen-VL-2B
+target_size: 100000
+output_root: runs/experiments
+
+# One method per iterative round; pair with iteration_curves.py on the metrics side.
+methods:
+  - {name: ours_round0, kind: ours, params: {round: 0}, raw_pool_path: runs/iterative/latest}
+  - {name: ours_round1, kind: ours, params: {round: 1}, raw_pool_path: runs/iterative/latest}
+  - {name: ours_round2, kind: ours, params: {round: 2}, raw_pool_path: runs/iterative/latest}
+  - {name: ours_round3, kind: ours, params: {round: 3}, raw_pool_path: runs/iterative/latest}
+  - {name: ours_round4, kind: ours, params: {round: 4}, raw_pool_path: runs/iterative/latest}
+
+benchmarks:
+  - {name: mmbench, split: dev, data_path: data/bench/mmbench/dev.tsv, image_dir: data/bench/mmbench/images, metric: mc_acc}
+  - {name: pope,    split: adv, data_path: data/bench/pope/pope_adversarial.jsonl, image_dir: data/bench/coco/val2014, metric: accuracy}

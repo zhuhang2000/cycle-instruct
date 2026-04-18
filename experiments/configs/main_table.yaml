@@ -1,0 +1,44 @@
+name: main_table_v1
+backbone: Qwen-VL-2B
+training_preset: default
+target_size: 100000
+seed: 0
+output_root: runs/experiments
+
+methods:
+  - name: no_filter
+    kind: no_filter
+    raw_pool_path: data/raw_pool.jsonl
+  - name: random_50
+    kind: random_k
+    raw_pool_path: data/raw_pool.jsonl
+    params: {ratio: 0.5}
+  - name: clip_only_0p25
+    kind: clip_only
+    raw_pool_path: data/raw_pool.jsonl
+    params: {clip_threshold: 0.25}
+  - name: length_heuristic
+    kind: length_heuristic
+    raw_pool_path: data/raw_pool.jsonl
+  - name: ours_round1
+    kind: ours
+    raw_pool_path: runs/iterative/latest
+    params: {round: 1}
+  - name: ours_round5
+    kind: ours
+    raw_pool_path: runs/iterative/latest
+    params: {round: 5}
+  - name: sharegpt4v
+    kind: external_dataset
+    dataset_path: data/external/sharegpt4v_100k.json
+  - name: human_subset
+    kind: external_dataset
+    dataset_path: data/external/vqav2_human_100k.json
+
+benchmarks:
+  - {name: vqav2,     split: val2014, data_path: data/bench/vqav2,                                image_dir: data/bench/coco/val2014,     metric: accuracy, max_samples: 5000}
+  - {name: gqa,       split: testdev, data_path: data/bench/gqa/testdev_balanced_questions.json, image_dir: data/bench/gqa/images,       metric: accuracy}
+  - {name: mmbench,   split: dev,     data_path: data/bench/mmbench/dev.tsv,                     image_dir: data/bench/mmbench/images,   metric: mc_acc}
+  - {name: pope,      split: adv,     data_path: data/bench/pope/pope_adversarial.jsonl,         image_dir: data/bench/coco/val2014,     metric: accuracy}
+  - {name: docvqa,    split: val,     data_path: data/bench/docvqa/val_v1.0.json,                image_dir: data/bench/docvqa/images,    metric: anls}
+  - {name: hallusion, split: all,     data_path: data/bench/hallusion/HallusionBench.json,       image_dir: data/bench/hallusion/images, metric: accuracy}
