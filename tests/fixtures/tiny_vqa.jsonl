@@ -1,0 +1,8 @@
+{"image_path": "img_0.jpg", "image_id": "0", "question": "How many people are in the photo?", "answer": "Three people are walking together.", "cycle_scores": {"ar": 0.65, "clip": 0.30, "qr": 0.60, "ppl": 0.55, "composite": 0.55}}
+{"image_path": "img_1.jpg", "image_id": "1", "question": "What objects are on the table?", "answer": "A cup, a plate, and a spoon.", "cycle_scores": {"ar": 0.80, "clip": 0.42, "qr": 0.75, "ppl": 0.70, "composite": 0.72}}
+{"image_path": "img_2.jpg", "image_id": "2", "question": "Why is the umbrella open?", "answer": "Because it is raining outside.", "cycle_scores": {"ar": 0.55, "clip": 0.25, "qr": 0.50, "ppl": 0.60, "composite": 0.50}}
+{"image_path": "img_3.jpg", "image_id": "3", "question": "What is to the left of the red car?", "answer": "A blue bicycle is there.", "cycle_scores": {"ar": 0.70, "clip": 0.35, "qr": 0.65, "ppl": 0.65, "composite": 0.65}}
+{"image_path": "img_4.jpg", "image_id": "4", "question": "What is the woman doing?", "answer": "She is reading a book.", "cycle_scores": {"ar": 0.75, "clip": 0.38, "qr": 0.70, "ppl": 0.68, "composite": 0.70}}
+{"image_path": "img_5.jpg", "image_id": "5", "question": "What does the sign say?", "answer": "The sign reads emergency exit.", "cycle_scores": {"ar": 0.60, "clip": 0.28, "qr": 0.55, "ppl": 0.62, "composite": 0.58}}
+{"image_path": "img_6.jpg", "image_id": "6", "question": "What items are on the shelf?", "answer": "Books and a lamp are there.", "cycle_scores": {"ar": 0.82, "clip": 0.45, "qr": 0.78, "ppl": 0.72, "composite": 0.75}}
+{"image_path": "img_7.jpg", "image_id": "7", "question": "How many dogs are visible?", "answer": "Two dogs are sitting.", "cycle_scores": {"ar": 0.77, "clip": 0.40, "qr": 0.73, "ppl": 0.70, "composite": 0.72}}
