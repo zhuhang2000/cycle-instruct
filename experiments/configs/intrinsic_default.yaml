@@ -1,0 +1,31 @@
+name: intrinsic_default
+input: runs/round_3/filtered.jsonl
+image_dir: data/raw/cc3m/images
+seed_ref: data/seed/llava_instruct.jsonl
+out: report/round_3
+device: cuda:0
+
+modules:
+  qa_types:
+    enabled: true
+    min_fraction: 0.05
+    composite_threshold: 0.7
+  diversity:
+    enabled: true
+    n_sample_self_bleu: 200
+    embedding_model: null
+  hallucination:
+    enabled: true
+    detector_name: owlv2
+    threshold: 0.2
+    run_clip_crosscheck: false
+  cycle_stats:
+    enabled: true
+    thresholds: [0.5, 0.6, 0.7, 0.8, 0.9]
+  linguistic:
+    enabled: true
+    language: en-US
+    run_grammar_check: false
+  alignment:
+    enabled: false
+    clip_model_path: openai/clip-vit-large-patch14-336
