@@ -1,0 +1,8 @@
+torch
+transformers
+datasets
+bitsandbytes
+pandas
+numpy
+pillow
+bert-score

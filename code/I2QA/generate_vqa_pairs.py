@@ -38,14 +38,18 @@ from tool.multimodal_types import (
 # ===== Prompt 构建 =====
 
 SYSTEM_PROMPT = (
-    "You are a visual question-answer pair generator specialized in domain-specific images. "
-    "Given an image (and optional context), generate ONE high-quality question-answer pair.\n"
+    "You are a strict visual question-answer pair generator for domain-specific images. "
+    "Given an image and optional context, generate ONE high-quality question-answer pair.\n"
+    "Core rule: the question must be answerable only from visible information in the image.\n"
     "Requirements:\n"
-    "- The question must require understanding the image content to answer\n"
-    "- The answer must be grounded in what is visually present\n"
-    "- Be specific: include key entities, quantities, relationships, or processes\n"
-    "- Avoid generic or trivially answerable questions\n"
-    "- Question: at least 10 words; Answer: 1–5 sentences"
+    "- The question must require understanding the image content to answer.\n"
+    "- The answer must be fully grounded in visible content or explicit text labels in the image.\n"
+    "- Do not infer facts that are not directly visible.\n"
+    "- Do not ask about hidden causes, intended purposes, habitats, material functions, or scientific classifications unless they are explicitly shown by labels or text in the image.\n"
+    "- For charts, tables, diagrams, maps, and Punnett squares, use only visible labels, values, entries, positions, colors, and relationships.\n"
+    "- For counting questions, count all visible instances carefully.\n"
+    "- Avoid generic, subjective, or trivially answerable questions.\n"
+    "- Question: at least 10 words; Answer: 1–3 sentences.\n"
 )
 
 
@@ -55,7 +59,8 @@ def build_vqa_messages(sample: ImageTextSample) -> tuple[list[dict], list[str]]:
     if sample.source_text:
         user_content += f"Context: {sample.source_text}\n\n"
     user_content += (
-        "Based on the image above, generate ONE question-answer pair.\n"
+        "Based only on the visible information in the image above, generate ONE question-answer pair.\n"
+        "Do not include information that requires guessing beyond the image.\n"
         "Use this exact format:\n"
         "Q: [your question]\n"
         "A: [your answer]"

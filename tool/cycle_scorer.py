@@ -34,7 +34,13 @@ def bertscore_batch(
     计算 BERTScore F1。
     返回 list[float]，每个元素对应一对 (candidate, reference) 的 F1 分数。
     """
-    from bert_score import score as bert_score_fn
+    try:
+        from bert_score import score as bert_score_fn
+    except ImportError as exc:
+        raise RuntimeError(
+            "未安装 bert-score，无法计算循环一致性的 BERTScore。"
+            "请在当前 Python 环境中执行: pip install bert-score"
+        ) from exc
 
     if not candidates or not references:
         return []

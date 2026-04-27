@@ -134,7 +134,7 @@ def load_mllm(*, model_path: str, backend: str = "hf", **kwargs):
 
     try:
         model = transformers.AutoModelForVision2Seq.from_pretrained(model_path, **model_kwargs).eval()
-    except (ValueError, KeyError):
+    except (AttributeError, ValueError, KeyError):
         # 部分 MLLM（如 Qwen2-VL）未注册 AutoModelForVision2Seq，回退 CausalLM
         model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs).eval()
     return processor, model
@@ -187,6 +187,5 @@ def load_vllm_engine(*, model_path: str, **kwargs):
     llm = LLM(**llm_kwargs)
     tokenizer = llm.get_tokenizer()
     return tokenizer, llm
-
 
 

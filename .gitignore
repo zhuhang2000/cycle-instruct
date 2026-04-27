@@ -10,3 +10,6 @@ origin_qa/
 !README.md
 .claude
 .worktrees/
+runs/
+env.sh
+.codex

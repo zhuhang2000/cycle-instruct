@@ -38,7 +38,7 @@ python -m pip install -U pip
 按当前脚本实际 import，至少需要：
 
 ```powershell
-pip install torch transformers datasets bitsandbytes pandas
+pip install -r requirements.txt
 ```
 
 如果在 Windows 上 `bitsandbytes` 不可用，可先安装其余包；量化相关功能主要面向 Linux + NVIDIA CUDA 环境。
@@ -201,4 +201,3 @@ python -m py_compile test_model/test.py
 
 - 目前模型加载参数是“集中固定配置”模式，适合单机/单模型流程。
 - 如果后续要支持多模型切换，可在 [tool/model_loader.py](tool/model_loader.py) 增加环境变量覆盖逻辑。
-

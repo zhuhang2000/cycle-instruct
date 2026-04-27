@@ -30,21 +30,68 @@ from tool.multimodal_types import ImageTextSample, MultimodalInferConfig
 
 # ===== 多模态 HF 推理 =====
 
+def _to_hf_multimodal_messages(messages: list[dict], image_count: int) -> list[dict]:
+    """Convert literal <image> placeholders to HF chat-template image items."""
+    if image_count <= 0:
+        return messages
+
+    converted: list[dict] = []
+    placeholder_count = 0
+    inserted_fallback = False
+
+    for message in messages:
+        content = message.get("content", "")
+        new_message = dict(message)
+
+        if isinstance(content, str) and "<image>" in content:
+            parts = content.split("<image>")
+            items: list[dict] = []
+            for idx, part in enumerate(parts):
+                if idx > 0:
+                    items.append({"type": "image"})
+                    placeholder_count += 1
+                if part:
+                    items.append({"type": "text", "text": part})
+            new_message["content"] = items
+        elif (
+            not inserted_fallback
+            and not placeholder_count
+            and message.get("role") == "user"
+            and isinstance(content, str)
+        ):
+            new_message["content"] = [
+                *({"type": "image"} for _ in range(image_count)),
+                {"type": "text", "text": content},
+            ]
+            placeholder_count = image_count
+            inserted_fallback = True
+
+        converted.append(new_message)
+
+    if placeholder_count != image_count:
+        raise ValueError(
+            f"image placeholder count ({placeholder_count}) does not match "
+            f"provided images ({image_count})"
+        )
+    return converted
+
+
 def _chat_generate_hf_mm(
     processor, model, messages: list[dict], image_paths: list[str],
     cfg: MultimodalInferConfig,
 ) -> str:
     """HF 后端：单条多模态推理。processor = AutoProcessor。"""
     images = [Image.open(p).convert("RGB") for p in image_paths] if image_paths else None
+    hf_messages = _to_hf_multimodal_messages(messages, len(image_paths))
 
     # 使用 processor 的 apply_chat_template（Qwen-VL / LLaVA 等均支持）
     try:
         text = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
+            hf_messages, tokenize=False, add_generation_prompt=True,
         )
     except Exception:
         # 回退：拼接 content
-        text = "\n".join(m.get("content", "") for m in messages)
+        text = "\n".join(str(m.get("content", "")) for m in messages)
 
     inputs = processor(
         text=[text], images=images, return_tensors="pt", padding=True,
