@@ -4,7 +4,7 @@ Stage 2 — 循环一致性验证：对 Stage 1 生成的 VQA 对进行三路验
 验证路径:
   2a. 答案重建: Image + Q → A'，BERTScore(A, A')
   2b. CLIP 对齐: cos(CLIP_img(I), CLIP_txt(A))
-  2c. 问题重建: A → Q'（复用现有 text A2Q），BERTScore(Q, Q')
+  2c. 问题重建: Image + A → Q'，BERTScore(Q, Q')
 
 用法:
     python verify_cycle_consistency.py -i vqa_pairs.json -o vqa_scored.json
@@ -26,7 +26,7 @@ def _ensure_project_root_on_path() -> None:
 
 _ensure_project_root_on_path()
 
-from tool.chat_infer import generate as text_generate, InferConfig
+from tool.chat_infer import save_json
 from tool.cycle_scorer import compute_cycle_scores
 from tool.multimodal_infer import generate_multimodal
 from tool.multimodal_types import (
@@ -94,11 +94,13 @@ def reconstruct_answers(
     def to_record_raw(sample: ImageTextSample, output: str) -> dict:
         return {"image_id": sample.image_id, "question": sample.source_text, "answer_prime": output}
 
-    # 使用 verifier 模型
+    # 使用 verifier 模型；未显式配置时回退到主模型路径。
+    verifier_model_path = cfg.effective_verifier_path() or cfg.model_path
     verify_cfg = MultimodalInferConfig(
         backend=cfg.backend,
         quantization=cfg.quantization,
-        mllm_model_path=cfg.effective_verifier_path(),
+        model_path=verifier_model_path,
+        mllm_model_path=verifier_model_path,
         temperature=0.0,  # 确定性生成
         max_new_tokens=cfg.max_new_tokens,
         batch_size=cfg.batch_size,
@@ -113,39 +115,81 @@ def reconstruct_answers(
     return [r.get("answer_prime", "") for r in records]
 
 
-# ===== 2c. 问题重建：A → Q'（复用现有 text A2Q）=====
+# ===== 2c. 问题重建：Image + A → Q' =====
+
+def _vqa_to_answer_sample(vqa: VQAPair) -> ImageTextSample:
+    """VQAPair → ImageTextSample，用 answer 作为条件文本重建问题。"""
+    return ImageTextSample(
+        image_path=vqa.image_path,
+        image_id=vqa.image_id,
+        source_text=vqa.answer,
+        source_type="question_reconstruction",
+    )
+
 
 def reconstruct_questions(
     vqa_pairs: list[VQAPair], cfg: MultimodalInferConfig, tmp_dir: Path,
 ) -> list[str]:
     """
-    2c. 用现有 text A2Q pipeline 从 answer 重建 question。
-    复用 code/Q2A/generate_pseudo_q.py 的 build_messages。
+    2c. 用 verifier MLLM 从 (Image, Answer) 重建 Question。
     """
-    import importlib.util
-    _q2a_path = Path(__file__).resolve().parents[1] / "Q2A" / "generate_pseudo_q.py"
-    _spec = importlib.util.spec_from_file_location("generate_pseudo_q", _q2a_path)
-    _mod = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(_mod)
-    text_build_messages = _mod.build_messages
+    def build_question_messages(sample: ImageTextSample) -> tuple[list[dict], list[str]]:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a precise visual question generation assistant. "
+                    "Given an image and a target answer, write ONE natural question "
+                    "that is answerable from the visible image content and whose answer "
+                    "would be the target answer. Do not use outside knowledge."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "<image>\n"
+                    f"Target answer: {sample.source_text}\n\n"
+                    "Generate only the question. The question must depend on the image."
+                ),
+            },
+        ]
+        return messages, [sample.image_path]
 
-    answers = [v.answer for v in vqa_pairs]
-    output_path = tmp_dir / "question_reconstruction.json"
+    def to_record_q(sample: ImageTextSample, question: str) -> dict:
+        return {
+            "image_id": sample.image_id,
+            "answer": sample.source_text,
+            "question_prime": question,
+        }
 
-    text_cfg = InferConfig(
-        model_path=cfg.model_path,
+    verifier_model_path = cfg.effective_verifier_path() or cfg.model_path
+    question_cfg = MultimodalInferConfig(
         backend=cfg.backend,
         quantization=cfg.quantization,
+        model_path=verifier_model_path,
+        mllm_model_path=verifier_model_path,
         temperature=0.0,
         max_new_tokens=cfg.max_new_tokens,
         batch_size=cfg.batch_size,
         save_every=cfg.save_every,
+        tensor_parallel_size=cfg.tensor_parallel_size,
+        gpu_memory_utilization=cfg.gpu_memory_utilization,
+        max_model_len=cfg.max_model_len,
+        dtype=cfg.dtype,
+        disable_log=cfg.disable_log,
+        dtype_gpu=cfg.dtype_gpu,
+        dtype_cpu=cfg.dtype_cpu,
     )
 
-    def to_record_q(answer: str, question: str) -> dict:
-        return {"answer": answer, "question_prime": question}
-
-    records = text_generate(answers, text_build_messages, output_path, to_record_q, cfg=text_cfg)
+    samples = [_vqa_to_answer_sample(v) for v in vqa_pairs]
+    output_path = tmp_dir / "question_reconstruction.json"
+    records = generate_multimodal(
+        samples,
+        build_question_messages,
+        output_path,
+        to_record_q,
+        cfg=question_cfg,
+    )
     return [r.get("question_prime", "") for r in records]
 
 
@@ -162,7 +206,7 @@ def verify_batch(
     # 2a. 答案重建
     reconstructed_answers = reconstruct_answers(vqa_pairs, cfg, tmp_dir)
 
-    # 2c. 问题重建（复用现有 text A2Q）
+    # 2c. 问题重建：Image + A -> Q'
     reconstructed_questions = reconstruct_questions(vqa_pairs, cfg, tmp_dir)
 
     # 综合打分（2b CLIP 在 cycle_scorer 内部计算）
@@ -188,7 +232,7 @@ if __name__ == "__main__":
     parser.add_argument("-q", "--quantization", default=None)
     parser.add_argument("-m", "--model-path", default="", help="MLLM 模型路径（生成器）")
     parser.add_argument("-vm", "--verifier-model-path", default="", help="Verifier MLLM 路径（默认同 -m）")
-    parser.add_argument("--text-model-path", default="", help="文本 LLM 路径（用于 A2Q 问题重建）")
+    parser.add_argument("--text-model-path", default="", help="兼容旧参数；Image+A 问题重建已改用 verifier MLLM")
     args = parser.parse_args()
 
     with Path(args.input).open("r", encoding="utf-8") as f:
@@ -209,6 +253,5 @@ if __name__ == "__main__":
 
     scored = verify_batch(vqa_pairs, cfg, tmp_dir)
 
-    from tool.chat_infer import save_json
     save_json(output_path, [vqa_to_dict(v) for v in scored])
     print(f"[Done] 验证完成，{len(scored)} 条已打分 -> {output_path}")

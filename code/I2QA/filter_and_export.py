@@ -61,7 +61,7 @@ def filter_and_export(
         保留的 ShareGPT 训练记录列表
     """
     kept = [v for v in vqa_pairs if passes_thresholds(v, cfg)]
-    records = [vqa_to_sharegpt(v) for v in kept]
+    records = [vqa_to_sharegpt(v, include_metadata=True) for v in kept]
     save_json(output_path, records)
     return records
 

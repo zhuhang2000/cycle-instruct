@@ -129,12 +129,24 @@ def vqa_from_dict(d: dict) -> VQAPair:
     )
 
 
-def vqa_to_sharegpt(v: VQAPair) -> dict:
+def vqa_to_sharegpt(v: VQAPair, *, include_metadata: bool = False) -> dict:
     """转换为 LlamaFactory ShareGPT 多模态格式（对齐 mllm_demo.json）。"""
-    return {
+    record = {
         "messages": [
             {"role": "user", "content": f"<image>{v.question}"},
             {"role": "assistant", "content": v.answer},
         ],
         "images": [v.image_path],
     }
+    if include_metadata:
+        record.update(
+            {
+                "image_id": v.image_id,
+                "question": v.question,
+                "answer": v.answer,
+                "generation_model": v.generation_model,
+                "cycle_scores": v.cycle_scores,
+                "cycle_score": v.composite_score,
+            }
+        )
+    return record
