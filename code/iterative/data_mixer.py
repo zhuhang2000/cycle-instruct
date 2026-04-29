@@ -312,8 +312,13 @@ def to_llamafactory_dataset(
                     "[data_mixer] %s was malformed; overwriting", info_path,
                 )
                 info = {}
+        file_name = (
+            data_file.name
+            if data_file.parent.resolve() == info_path.parent.resolve()
+            else str(data_file.resolve())
+        )
         info[dataset_name] = {
-            "file_name": str(data_file.resolve()),
+            "file_name": file_name,
             "formatting": "sharegpt",
             "columns": {"messages": "messages", "images": "images"},
             "tags": {

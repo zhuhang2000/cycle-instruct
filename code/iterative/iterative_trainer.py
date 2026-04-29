@@ -81,6 +81,7 @@ class IterativeConfig:
     raw_image_dir: str
     output_root: str
     llamafactory_data_dir: str | None = None  # where to write dataset_info.json
+    llamafactory_template: str = "qwen3_vl_nothink"
 
     # ---- schedule --------------------------------------------------------
     max_rounds: int = 5
@@ -115,6 +116,11 @@ class IterativeConfig:
     dry_run: bool = False
 
     # -- derived helpers ---------------------------------------------------
+    @property
+    def model_path(self) -> str:
+        """Unified model entrypoint used for generation, training, and merging."""
+        return self.base_model_path
+
     def round_dir(self, round_id: int) -> Path:
         return Path(self.output_root) / f"round_{round_id}"
 
@@ -246,6 +252,8 @@ def run_lora_training(
     train_cfg: RoundTrainingConfig,
     round_dir: Path,
     dataset_name: str,
+    *,
+    template: str = "qwen3_vl_nothink",
 ) -> Path:
     """Invoke LlamaFactory CLI to train a fresh LoRA adapter.
 
@@ -272,7 +280,7 @@ def run_lora_training(
         "--dataset_dir", str(dataset_dir),
         "--dataset", dataset_name,
         "--output_dir", str(lora_dir),
-        "--template", "qwen3",  # caller may override; qwen3 matches the base model
+        "--template", template,
         "--finetuning_type", "lora",
         "--lora_target", "all",
         "--bf16", "True",
@@ -291,6 +299,8 @@ def run_merge_lora(
     base_model_path: str,
     lora_dir: Path,
     merged_dir: Path,
+    *,
+    template: str = "qwen3_vl_nothink",
 ) -> None:
     """Merge the adapter into a standalone model via ``llamafactory-cli export``."""
     merged_dir.mkdir(parents=True, exist_ok=True)
@@ -303,7 +313,7 @@ def run_merge_lora(
         "llamafactory-cli", "export",
         "--model_name_or_path", base_model_path,
         "--adapter_name_or_path", str(lora_dir),
-        "--template", "qwen3",
+        "--template", template,
         "--finetuning_type", "lora",
         "--export_dir", str(merged_dir),
         "--export_size", "2",
@@ -371,8 +381,30 @@ def run_iterative_training(
     callers may inject alternative training backends.
     """
     gen_filter_fn = gen_filter_fn or run_generation_and_filter
-    train_fn = train_fn or run_lora_training
-    merge_fn = merge_fn or run_merge_lora
+    if train_fn is None:
+        def train_fn(
+            base_model_path: str,
+            dataset_file: Path,
+            train_cfg: RoundTrainingConfig,
+            round_dir: Path,
+            dataset_name: str,
+        ) -> Path:
+            return run_lora_training(
+                base_model_path,
+                dataset_file,
+                train_cfg,
+                round_dir,
+                dataset_name,
+                template=cfg.llamafactory_template,
+            )
+    if merge_fn is None:
+        def merge_fn(base_model_path: str, lora_dir: Path, merged_dir: Path) -> None:
+            run_merge_lora(
+                base_model_path,
+                lora_dir,
+                merged_dir,
+                template=cfg.llamafactory_template,
+            )
 
     Path(cfg.output_root).mkdir(parents=True, exist_ok=True)
     history: list[RoundMetrics] = []
@@ -386,7 +418,7 @@ def run_iterative_training(
 
         # (1) choose generator
         if round_id == 0:
-            gen_model = cfg.base_model_path
+            gen_model = cfg.model_path
         else:
             gen_model = str(cfg.round_dir(round_id - 1) / "merged_model")
             if not Path(gen_model).is_dir():
@@ -440,13 +472,11 @@ def run_iterative_training(
 
         # (5) Write dataset + register with LlamaFactory
         dataset_name = f"mixed_round_{round_id}"
-        dataset_info = (
-            Path(cfg.llamafactory_data_dir) / "dataset_info.json"
-            if cfg.llamafactory_data_dir else None
-        )
+        dataset_dir = Path(cfg.llamafactory_data_dir) if cfg.llamafactory_data_dir else round_dir
+        dataset_info = dataset_dir / "dataset_info.json"
         dataset_file, _ = to_llamafactory_dataset(
             mixed,
-            output_dir=round_dir,
+            output_dir=dataset_dir,
             dataset_name=dataset_name,
             dataset_info_path=dataset_info,
         )
@@ -456,12 +486,12 @@ def run_iterative_training(
 
         # (7) TRAIN — always from base model
         lora_dir = train_fn(
-            cfg.base_model_path, dataset_file, train_cfg, round_dir, dataset_name,
+            cfg.model_path, dataset_file, train_cfg, round_dir, dataset_name,
         )
 
         # (8) merge
         merged_dir = round_dir / "merged_model"
-        merge_fn(cfg.base_model_path, lora_dir, merged_dir)
+        merge_fn(cfg.model_path, lora_dir, merged_dir)
 
         # (9) metrics
         cur_dist = compute_type_distribution(mixed)
@@ -536,11 +566,12 @@ def _build_argparser() -> argparse.ArgumentParser:
         prog="iterative_trainer",
         description="Iterative self-training controller for Cycle-Instruct",
     )
-    p.add_argument("--base_model_path", required=True)
+    p.add_argument("--base_model_path", "--model_path", dest="base_model_path", required=True)
     p.add_argument("--initial_data_path", required=True)
     p.add_argument("--raw_image_dir", required=True)
     p.add_argument("--output_root", required=True)
     p.add_argument("--llamafactory_data_dir", default=None)
+    p.add_argument("--llamafactory_template", default="qwen3_vl_nothink")
     p.add_argument("--max_rounds", type=int, default=5)
     p.add_argument("--samples_per_round", type=int, default=2000)
     p.add_argument("--historical_pool_size", type=int, default=5000)
@@ -560,6 +591,7 @@ def main(argv: list[str] | None = None) -> int:
         raw_image_dir=args.raw_image_dir,
         output_root=args.output_root,
         llamafactory_data_dir=args.llamafactory_data_dir,
+        llamafactory_template=args.llamafactory_template,
         max_rounds=args.max_rounds,
         samples_per_round=args.samples_per_round,
         historical_pool_size=args.historical_pool_size,

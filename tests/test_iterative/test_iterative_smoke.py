@@ -222,6 +222,33 @@ def test_lora_always_from_base_model(iterative_cfg: IterativeConfig) -> None:
         assert call[0] == iterative_cfg.base_model_path
 
 
+def test_llamafactory_data_dir_is_training_dataset_root(
+    iterative_cfg: IterativeConfig,
+    tmp_path: Path,
+) -> None:
+    lf_data = tmp_path / "lf_data"
+    iterative_cfg.llamafactory_data_dir = str(lf_data)
+    iterative_cfg.max_rounds = 1
+
+    hooks = _FakeHooks()
+    run_iterative_training(
+        iterative_cfg,
+        gen_filter_fn=hooks.gen_filter,
+        train_fn=hooks.train,
+        merge_fn=hooks.merge,
+    )
+
+    assert hooks.train_calls
+    dataset_file = hooks.train_calls[0][1]
+    assert dataset_file.parent == lf_data
+    assert dataset_file.name == "mixed_round_0.json"
+
+    info_path = lf_data / "dataset_info.json"
+    assert info_path.is_file()
+    info = json.loads(info_path.read_text("utf-8"))
+    assert info["mixed_round_0"]["file_name"] == "mixed_round_0.json"
+
+
 def test_metrics_contain_expected_fields(iterative_cfg: IterativeConfig) -> None:
     hooks = _FakeHooks()
     history = run_iterative_training(

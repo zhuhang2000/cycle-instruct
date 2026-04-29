@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash bash/run_iterative_cycle.sh \
-#       --base_model /path/to/Qwen3-VL-4B \
+#       --model /path/to/Qwen3-VL-4B \
 #       --seed_data seeds.json \
 #       --images raw_images/ \
 #       --output runs/$(date +%Y%m%d_%H%M) \
@@ -16,11 +16,12 @@
 set -euo pipefail
 
 # -------- defaults --------
-BASE_MODEL=""
+MODEL_PATH=""
 SEED_DATA=""
 IMAGES=""
 OUTPUT=""
 LF_DATA_DIR=""
+LF_TEMPLATE="qwen3_vl_nothink"
 MAX_ROUNDS=5
 SAMPLES_PER_ROUND=2000
 DRY_RUN=""
@@ -29,11 +30,12 @@ SMOKE=""
 # -------- arg parsing --------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --base_model)         BASE_MODEL="$2"; shift 2 ;;
+    --model|--model_path|--base_model) MODEL_PATH="$2"; shift 2 ;;
     --seed_data)          SEED_DATA="$2"; shift 2 ;;
     --images)             IMAGES="$2"; shift 2 ;;
     --output)             OUTPUT="$2"; shift 2 ;;
     --llamafactory_data)  LF_DATA_DIR="$2"; shift 2 ;;
+    --template|--llamafactory_template) LF_TEMPLATE="$2"; shift 2 ;;
     --max_rounds)         MAX_ROUNDS="$2"; shift 2 ;;
     --samples_per_round)  SAMPLES_PER_ROUND="$2"; shift 2 ;;
     --dry-run)            DRY_RUN="--dry_run"; shift 1 ;;
@@ -50,11 +52,11 @@ done
 if [[ -n "$SMOKE" ]]; then
   TMP=$(mktemp -d)
   echo "[smoke] using tmp dir $TMP"
-  BASE_MODEL="${BASE_MODEL:-$TMP/base_model}"
+  MODEL_PATH="${MODEL_PATH:-$TMP/base_model}"
   SEED_DATA="${SEED_DATA:-$TMP/seeds.json}"
   IMAGES="${IMAGES:-$TMP/images}"
   OUTPUT="${OUTPUT:-$TMP/run}"
-  mkdir -p "$BASE_MODEL" "$IMAGES" "$OUTPUT"
+  mkdir -p "$MODEL_PATH" "$IMAGES" "$OUTPUT"
   echo "[]" > "$SEED_DATA"
   MAX_ROUNDS=2
   SAMPLES_PER_ROUND=10
@@ -62,7 +64,7 @@ if [[ -n "$SMOKE" ]]; then
 fi
 
 # -------- required args --------
-for v in BASE_MODEL SEED_DATA IMAGES OUTPUT; do
+for v in MODEL_PATH SEED_DATA IMAGES OUTPUT; do
   if [[ -z "${!v}" ]]; then
     echo "missing --${v,,} (got empty)"
     exit 2
@@ -71,10 +73,11 @@ done
 
 mkdir -p "$OUTPUT"
 
-echo "[iterative] base_model=$BASE_MODEL"
+echo "[iterative] model_path=$MODEL_PATH"
 echo "[iterative] seed_data=$SEED_DATA"
 echo "[iterative] images=$IMAGES"
 echo "[iterative] output=$OUTPUT"
+echo "[iterative] llamafactory_template=$LF_TEMPLATE"
 echo "[iterative] max_rounds=$MAX_ROUNDS samples/round=$SAMPLES_PER_ROUND"
 
 LF_ARG=()
@@ -83,10 +86,11 @@ if [[ -n "$LF_DATA_DIR" ]]; then
 fi
 
 python -m code.iterative.iterative_trainer \
-  --base_model_path "$BASE_MODEL" \
+  --model_path "$MODEL_PATH" \
   --initial_data_path "$SEED_DATA" \
   --raw_image_dir "$IMAGES" \
   --output_root "$OUTPUT" \
+  --llamafactory_template "$LF_TEMPLATE" \
   --max_rounds "$MAX_ROUNDS" \
   --samples_per_round "$SAMPLES_PER_ROUND" \
   $DRY_RUN \

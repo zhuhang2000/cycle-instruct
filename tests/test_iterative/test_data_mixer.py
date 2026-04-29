@@ -285,6 +285,7 @@ def test_to_llamafactory_dataset_writes_both(tmp_path: Path) -> None:
 
     info = json.loads(info_file.read_text("utf-8"))
     assert "mixed_round_0" in info
+    assert info["mixed_round_0"]["file_name"] == "mixed_round_0.json"
     assert info["mixed_round_0"]["formatting"] == "sharegpt"
 
 

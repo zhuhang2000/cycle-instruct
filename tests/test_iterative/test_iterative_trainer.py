@@ -7,6 +7,27 @@ import sys
 from pathlib import Path
 
 from code.iterative import iterative_trainer
+from code.iterative.round_config import RoundTrainingConfig
+
+
+def test_argparser_accepts_unified_model_path_alias() -> None:
+    args = iterative_trainer._build_argparser().parse_args(
+        [
+            "--model_path",
+            "/models/qwen3-vl",
+            "--initial_data_path",
+            "seed.json",
+            "--raw_image_dir",
+            "images",
+            "--output_root",
+            "runs/demo",
+            "--llamafactory_template",
+            "qwen3_vl_nothink",
+        ]
+    )
+
+    assert args.base_model_path == "/models/qwen3-vl"
+    assert args.llamafactory_template == "qwen3_vl_nothink"
 
 
 def test_run_generation_and_filter_uses_current_i2qa_cli(
@@ -124,3 +145,43 @@ def test_run_generation_and_filter_uses_current_i2qa_cli(
 
     filter_cmd = calls[2]
     assert Path(filter_cmd[1]).name == "filter_and_export.py"
+
+
+def test_run_lora_training_uses_dataset_parent_and_template(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.delenv("CI_SKIP_HEAVY", raising=False)
+    monkeypatch.setattr(iterative_trainer.subprocess, "run", fake_run)
+
+    dataset_dir = tmp_path / "lf_data"
+    dataset_dir.mkdir()
+    dataset_file = dataset_dir / "mixed_round_0.json"
+    dataset_file.write_text("[]", encoding="utf-8")
+
+    iterative_trainer.run_lora_training(
+        base_model_path="/models/qwen3-vl",
+        dataset_file=dataset_file,
+        train_cfg=RoundTrainingConfig(
+            learning_rate=1e-4,
+            num_epochs=1,
+            lora_rank=8,
+            lora_alpha=16,
+            warmup_ratio=0.03,
+        ),
+        round_dir=tmp_path / "round_0",
+        dataset_name="mixed_round_0",
+        template="qwen3_vl_nothink",
+    )
+
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--model_name_or_path") + 1] == "/models/qwen3-vl"
+    assert cmd[cmd.index("--dataset_dir") + 1] == str(dataset_dir)
+    assert cmd[cmd.index("--dataset") + 1] == "mixed_round_0"
+    assert cmd[cmd.index("--template") + 1] == "qwen3_vl_nothink"
